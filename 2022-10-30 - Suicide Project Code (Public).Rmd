@@ -1,0 +1,910 @@
+---
+title: "Weather-911 call Project"
+author: "Ramsay Malange"
+date: "10/11/2021"
+output: html_document
+---
+Updated: July 26, 2022
+
+# Data Collection
+
+I'm going to pull weather from the Mesowest API. 
+
+1. I got an API token from mesowest: https://developers.synopticdata.com/mesonet/ 
+
+Token: XXXXXXXXXXX #you need to get your own token from https://developers.synopticdata.com/mesonet/ 
+
+2. I pulled weather data. 
+* I used weather station KCLM for Clallam county. It is located at the Port Angeles Fairchild International Airport. There were several possible weather stations. I chose the one at the airport because I thought that it was reasonable that it would complete and accurate. 
+* I pulled weather data from: January 1, 2019 to June 30, 2020. This interval was used because it coincided with the suicide data we had access to. 
+
+## Libraries
+
+```{r}
+
+library(httr)
+library(jsonlite)
+library(lubridate)
+library(tidyverse)
+library(psych)
+library(formattable)
+library(dplyr)
+if(!require(countytimezones)){install.packages("countytimezones", dependencies = TRUE)}
+library(countytimezones)
+#install.packages("Hmisc") #for correlations
+library(Hmisc)
+#install.packages("patchwork") #for charts
+library(patchwork) # To display 2 charts together
+#install.packages("hrbrthemes")
+library(hrbrthemes)
+```
+
+## Wrangling Weather Data
+```{r}
+
+###-----------Getting Weather Data-----------###
+
+#This pulls the data from mesowest. Weather station ID: KCLM
+#KCLM <- GET("https://api.synopticdata.com/v2/stations/timeseries?stid=KCLM&start=201901010100&end=202006302300&vars=air_temp,relative_humidity,wind_speed,altimeter,pressure,solar_radiation,precip_accum&sensorvars=1&complete=1&token=XXXXXXXXXXX")
+#KCLMtext <- content (KCLM, "text")
+
+###-----------Turning Weather Data into data frame and saving as CSV-----------###
+#KCLM_JSON <- fromJSON(KCLMtext, flatten = TRUE)    #Converts data from API into JSON (Java Script ... (JSON) format)
+#KCLM_df <- as.data.frame(KCLM_JSON)                #Make it into a dataframe
+#View(KCLM_df)
+#head(KCLM_df)
+
+#a <- data.frame(KCLM_df$STATION.OBSERVATIONS.date_time)
+#b <- data.frame(KCLM_df$STATION.OBSERVATIONS.air_temp_set_1)
+#c <- data.frame(KCLM_df$STATION.OBSERVATIONS.altimeter_set_1)
+#d <- data.frame(KCLM_df$STATION.OBSERVATIONS.pressure_set_1d)
+#e <- data.frame(KCLM_df$STATION.OBSERVATIONS.relative_humidity_set_1)
+#f <- data.frame(KCLM_df$STATION.OBSERVATIONS.wind_speed_set_1)
+
+#KCLM_ALL <- cbind(a,b,c,d,e,f)                       #pulling observations from the months and putting in a dataframe
+#colnames(KCLM_ALL) <-c ("DTG", "Air Temp_Celsius", "Altimeter_Pascals", "Pressure_Pascals", "Relative Humidity_Pcnt", "Wind Speed_ms")
+#KCLM_ALL$County <- "Clallam"                          #Appending County Column
+#KCLM_ALL$STID <- "KCLM"                               #Appending Station ID
+
+write.csv (KCLM_ALL, "CLALLAM Weather 2019-2020.csv") #Save. Don't run the above again, now—You don't want to use up all your API pulls 
+
+weather_df <- read_csv("CLALLAM Weather 2019-2020.csv")                              #Creates a copy df. Use this one for analysis so nothing happens to the other.
+head(weather_df)
+weather_df$Date <- as.Date(weather_df$DTG)            #Add a column for Date that's actually a date (not a character)
+weather_df$month <- format(weather_df$Date, "%m")     #Add a column for Month with the month from the date)
+tail(weather_df)                                      #Weather data frame with each thing
+```
+
+## Wrangling Suicice Data
+```{r}
+##Here, I'm turning the suicide data into a table
+suicide_df <- read.csv("/Users/ramsay/Documents/Coding/1. DSDB/_DSBD Project - Suicide calls/Project/Suicide Data/Suicide Data for analysis.csv")                        #read csv file with suicide data into dataframe
+head(suicide_df)
+select(suicide_df, -X)                #Take out extra column called "X" that found its way in. 
+
+```
+
+# Data Analysis
+## Descriptive statistics
+### Weather
+```{r}
+###Here, I'm doing descriptive analyses on the weather data
+
+head(weather_df)
+weather <- weather_df
+weather$monthyear <- format(weather$Date, "%Y-%m")      #adding column for month of each year
+head(weather)
+tail(weather)
+colnames(weather) <- c("Observation number", "DTG", "Air.Temp_Celsius", "Altimeter_Pascals", "Pressure_Pascals", "Relative.Humidity_Pcnt", "Wind.Speed_ms", "County", "STID", "Date", "month", "monthyear")   #I had to change the column names because I think there was a bug with them beause of the spaces in the column names
+
+####---Full year---####
+#Air temperature (Celcius)
+summary(weather$Air.Temp_Celsius, na.rm = TRUE)
+sd(weather$Air.Temp_Celsius, na.rm = TRUE)
+
+#Altimeter (Pascals) - Altimeter_Pascals
+summary(weather$Altimeter_Pascals, na.rm = TRUE)
+sd(weather$Altimeter_Pascals, na.rm = TRUE)
+
+# Pressure_Pascals
+summary(weather$Pressure_Pascals, na.rm = TRUE)
+sd(weather$Pressure_Pascals, na.rm = TRUE)
+
+#Relative Humidity_Pcnt
+summary(weather$Relative.Humidity_Pcnt, na.rm = TRUE)
+sd(weather$Relative.Humidity_Pcnt, na.rm = TRUE)
+
+#Wind Speed_ms
+summary(weather$Wind.Speed_ms, na.rm = TRUE)
+sd(weather$Wind.Speed_ms, na.rm = TRUE)
+
+####---by month for each year---####
+by(weather, weather$monthyear, summary)
+head(weather)
+
+
+month_wea <- weather %>% 
+  group_by(monthyear) %>% 
+  summarise(month_temp = round(mean(Air.Temp_Celsius, na.rm = TRUE), digits = 2),          #mean avg air temperature, two decimal places, removign nas
+            month_alt = round(mean(Altimeter_Pascals, na.rm = TRUE), digits = 2),          #mean avg alt with two decimal places, removign nas
+            month_pres = round(mean(Pressure_Pascals, na.rm = TRUE), digits = 2),          #mean avg pres  with two decimal places, removign nas
+            month_hum = round(mean(Relative.Humidity_Pcnt, na.rm = TRUE), digits = 2),     #mean avg hum with two decimal places, removign nas
+            month_win = round(mean(Wind.Speed_ms, na.rm = TRUE), digits = 2))              #mean avg wind speed with two decimal places, removign nas
+month_wea
+
+
+####---Plots---####
+ggplot(data=month_wea, aes(x=monthyear, y=month_temp, group=1)) +                             #Plotting average temberature per month
+  geom_line()+
+  geom_point()
+
+ggplot(data=month_wea, aes(x=monthyear, y=month_alt, group=1)) +                              #Plotting average altimeter per month
+  geom_line()+
+  geom_point()
+
+ggplot(data=month_wea, aes(x=monthyear, y=month_pres, group=1)) +                             #Plotting average pressure per month
+  geom_line()+
+  geom_point()
+ 
+ggplot(data=month_wea, aes(x=monthyear, y=month_hum, group=1)) +                               #Plotting average humidity per month
+  geom_line()+ 
+  geom_point()
+
+ggplot(data=month_wea, aes(x=monthyear, y=month_win, group=1)) +                              #Plotting average wind speed per month
+  geom_line()+
+  geom_point()
+
+temperatureColor <- "#69b3a2"
+HumColor <- rgb(0.2, 0.6, 0.9, 1)
+
+p1 <- ggplot(data=month_wea, aes(x=monthyear, y=month_temp, group=1), xlab = "Months", ylab = "Air temperature (°C)") +
+  geom_line(color="#69b3a2", size=2) +
+  ggtitle("Average Monthly \nAir Temperature") +
+  scale_x_discrete(guide = guide_axis(angle = 90)) +
+  labs(y= "Air temperature (°C)", x = "Months") +
+  theme_ipsum()
+p1
+  
+p2 <- ggplot(data=month_wea, aes(x=monthyear, y=month_hum, group=1), xlab = "Months", ylab = "Relative Humidity (%)") +
+  geom_line(color=HumColor, size=2) +
+  ggtitle("Average Monthly \nRelative Humidity") +
+  scale_x_discrete(guide = guide_axis(angle = 90)) +
+  labs(y= "Humidity (%)", x = "Months") +
+  theme_ipsum()
+p2
+
+
+p1 + p2
+
+```
+
+### Suicide
+
+```{r}
+###Here, I'm doing descriptive analyses on the suicide data
+suicide <- suicide_df
+head(suicide)
+suicide %>% group_by(Call.Type) %>% summarise(n())
+head(suicide)
+suicide <- select(suicide, -X)                #Take out extra column called "X" that found its way in. 
+suicide$Call.Date.Time <- as.POSIXct(suicide$Call.Date.Time, format="%m/%d/%Y %H:%M:%S")  #Change the date from string to date Note:
+                                                                                          #Washington Time zone: UTC - 8. 
+
+suicide$date <- format(suicide$Call.Date.Time, "%Y-%m-%d")                                #Add a column for just the date without time
+suicide$month <- format(suicide$Call.Date.Time, "%m")
+suicide$monthyear <- format(suicide$Call.Date.Time, "%Y-%m")
+head(suicide)
+```
+
+```{r}
+####-----Here, I'm counting each type of suicide call by date------####
+suicide %>% count(date, Call.Type)    #Counts number of each call type per day. 
+day_counts <- suicide %>% count(date, Call.Type)
+day_counts$date <- as.Date(day_counts$date, format="%Y-%m-%d")  #Change the date from string
+head(day_counts)
+
+#Creating a df with just suicide calls
+day_suic_counts <- day_counts %>%  
+  mutate(suicide_calls = ifelse(Call.Type == 'Suicide', n, 0))
+day_suic_counts <- select(day_suic_counts, -Call.Type)
+day_suic_counts <- select(day_suic_counts, -n)
+day_suic_counts <- day_suic_counts[apply(day_suic_counts!=0, 1, all),] # taking out all that have values of 0
+head(day_suic_counts)
+
+#Creating a column of just Attempt calls
+day_attempt_counts <- day_counts %>%  
+  mutate(attempt_calls = ifelse(Call.Type == 'Suicidal - Attempt Threats', n, 0))
+day_attempt_counts <- select(day_attempt_counts, -Call.Type)
+day_attempt_counts <- select(day_attempt_counts, -n)
+day_attempt_counts <- day_attempt_counts[apply(day_attempt_counts!=0, 1, all),] # taking out all that have values of 0
+head(day_attempt_counts)
+
+#Creating a column of just ITA calls
+day_ITA_counts <- day_counts %>%  
+  mutate(ITA_calls = ifelse(Call.Type == 'MentalPerson - ITA', n, 0))
+day_ITA_counts <- select(day_ITA_counts, -Call.Type)
+day_ITA_counts <- select(day_ITA_counts, -n)
+day_ITA_counts <- day_ITA_counts[apply(day_ITA_counts!=0, 1, all),] # taking out all that have values of 0
+head(day_ITA_counts)
+
+#---putting it together in a single dataframe---#
+daily_counts <- full_join(day_suic_counts, day_attempt_counts, by = "date")
+daily_counts <- full_join(daily_counts, day_ITA_counts, by = "date")
+view(daily_counts)
+```
+
+```{r}
+####-----Here, I'm counting each type of suicide call by month------####
+head(suicide)
+suicide %>% count(monthyear, Call.Type)                                   #Counts number of each call type per month
+monthly_counts2 <- suicide %>% count(monthyear, Call.Type)
+monthly_counts2 <- na.omit(monthly_counts2)
+monthly_counts2
+
+#---Suicide---#
+suicides_mon <- subset(suicide, Call.Type == "Suicide", select = c("Call.Type", "date", "monthyear"))
+suicides_mon %>% count(date)                                                             #Counts number of each call type per date 
+suicides_mon %>% count(monthyear)                                                            #Counts number of each call type per month
+df1 <- suicides_mon %>% count(monthyear)                                                     #New Df with suicide counts per month.
+colnames(df1) <- c("month", "suicides")                                                  #renames columns
+df1
+
+#---Suicidal - Attempt Threats---#
+SAT_mon <- subset(suicide, Call.Type == "Suicidal - Attempt Threats", select = c("Call.Type", "date", "monthyear"))
+SAT_mon %>% count(date)
+SAT_mon %>% count(monthyear)                                                                 #Same as above for attempts
+df2 <- SAT_mon %>% count(monthyear)
+head(df2)
+colnames(df2) <- c("month", "attempt threats")
+df2
+
+#---MentalPerson - ITA---#
+MPITA_mon <- subset(suicide, Call.Type == "MentalPerson - ITA", select = c("Call.Type", "date", "monthyear"))
+MPITA_mon %>% count(date)                                                                #same as aboe for ITAs
+MPITA_mon %>% count(monthyear)  
+df3 <- MPITA_mon %>% count(monthyear)
+colnames(df3) <- c("month", "ITAs")
+df3
+           
+#---putting it together in a single dataframe---#
+monthly_counts3 <- full_join(df3, df2, by = "month")
+monthly_counts3
+monthly_counts3 <- full_join(monthly_counts3, df1, by = "month")
+monthly_counts3
+colnames(monthly_counts3) <- c("month", "ITAs", "attempts", "suicides")
+monthly_counts3
+summary(monthly_counts3)
+
+####-----Here, I'm counting each type by date------####
+ggplot(monthly_counts3, aes(x=month, y=ITAs))+
+  geom_bar(stat = "identity")
+
+ggplot(monthly_counts3, aes(x=month, y=attempts))+
+  geom_bar(stat = "identity")
+
+ggplot(monthly_counts3, aes(x=month, y=suicides))+
+  geom_bar(stat = "identity")
+
+ggplot(monthly_counts2, aes(fill=Call.Type, x=monthyear, y=n))+
+  geom_bar(position="dodge", stat = "identity") +
+  ggtitle("Frequency of Suicides, Attempts, and Involuntary Treatment Act Calls per month") + 
+  theme(axis.text.x=element_text(angle = -90, hjust = 0)) +
+  xlab("Month and Year") +
+  ylab("Number of calls")
+
+
+```
+
+## Simple Regression
+```{r}
+#Now I'm doing a simple regression
+#We'll try to see if weather variables have a relationship with 911 calls
+library(broom)
+library(ggpubr)
+
+######-----We're preparing to merge data frames to get weather and call numbers per date. -----######
+#First, we will get daily call types
+head(daily_counts)  
+
+#then, we'll get daily weather averages.
+head(weather)
+day_wea <- weather %>% 
+  group_by(Date) %>% 
+  summarise(day_temp = round(mean(Air.Temp_Celsius, na.rm = TRUE), digits = 2),          #mean avg air temperature, two decimal places, removign nas
+            day_alt = round(mean(Altimeter_Pascals, na.rm = TRUE), digits = 2),          #mean avg alt with two decimal places, removign nas
+            day_pres = round(mean(Pressure_Pascals, na.rm = TRUE), digits = 2),          #mean avg pres  with two decimal places, removign nas
+            day_hum = round(mean(Relative.Humidity_Pcnt, na.rm = TRUE), digits = 2),     #mean avg hum with two decimal places, removign nas
+            day_win = round(mean(Wind.Speed_ms, na.rm = TRUE), digits = 2))              #mean avg wind speed with two decimal places, removign nas
+head(day_wea)
+
+#Now we need to get them in the same dataframe. I'll merge them by date. 
+lin_reg_data <- merge(x = day_wea, y = daily_counts, by.x = "Date", by.y = "date", all = TRUE)
+view(lin_reg_data)
+head(lin_reg_data)
+#It worked! But there are NA's for counts where there should be "0s"
+lin_reg_data$suicide_calls[is.na(lin_reg_data$suicide_calls)] <- 0
+lin_reg_data$attempt_calls[is.na(lin_reg_data$attempt_calls)] <- 0
+lin_reg_data$ITA_calls[is.na(lin_reg_data$ITA_calls)] <- 0
+head(lin_reg_data)
+
+#------Here, I'm creating new count variables for each-----#
+
+#Creating a column of suicide + attempt calls
+lin_reg_data <- lin_reg_data %>%  
+  mutate(suicide_attempt_calls = suicide_calls + attempt_calls)
+ 
+#Creating a column of all calls
+lin_reg_data <- lin_reg_data %>%  
+  mutate(all_calls = suicide_calls + attempt_calls + ITA_calls)
+
+view(lin_reg_data)
+
+######-----Here is where all my regressions are-----######
+
+##Regression of temperature on Call counts
+##----test assumptions----##
+summary(lin_reg_data)
+
+#1. Independence of observations
+#really, there probably is some correlations between weather (temperature, humidity, etc.)
+#also Regression (either simple or multiple) assumes the data are independent. Longitudinal data are not independent and regression methods will give wrong results.
+
+
+#2. Normality
+hist(lin_reg_data$day_temp)   #looks roughly normal?
+hist(lin_reg_data$all_calls)          #definitely not normal. But looks Poisson-ey! 
+
+#3. Linearirty
+plot(all_calls ~ day_temp, data = lin_reg_data)   #hard to see any lienarity.
+
+#4. Homoscedasticity — homogeneity of variance
+# I realized here that we have to check this later.
+
+
+
+
+
+```
+## Poisson Regressions
+```{r}
+#Now we'll do a Poisson regression. Poisson regressions are often used when the response variable consists of count data. 
+#We'll try to see if weather variables have a causal influence on 911 calls
+library(broom)
+library(ggpubr)
+
+######-----Regressions-----######
+
+##Temperature on Call counts
+##----test assumptions----##
+pois_data <- lin_reg_data
+head(pois_data)
+dim(pois_data)
+
+
+#1. The response variable consists of count data. No negative values. 
+#This is true. 
+
+
+#2. Observations are independent
+#probably not because temperature one day is related to temperature on another day. Can we test it/check?
+
+#3. The distribution of counts follows a Poisson distribution
+
+
+#4. The mean and variance of the model are equal.
+
+
+
+
+
+
+```
+
+## Poisson Regression all variables on all calls
+```{r}
+###Here, I'm still doing poisson regressions
+#install.packages("corrplot")
+library(corrplot)
+install.packages("corrplot")
+library(ggplot2)
+#install.packages("ggplot2")
+#install.packages("Hmisc")
+library(Hmisc)
+
+##---the poisson regression---##
+
+###This is me trying to understand how to interpret the regressions
+#-> Estimate (interept): exp(α)= effect on the mean μ, when X = 0
+#-> exp(β) = with every unit increase in X, the predictor variable has multiplicative effect of exp(β) on the mean of Y. since β < 0,  exp(β) < 1, and the expected count is exp(β) times smaller than when X = 0
+
+
+#intercorrelations (I'm using https://www.displayr.com/how-to-create-a-correlation-matrix-in-r/#:~:text=A%20correlation%20matrix%20is%20a,negative%20correlations). for all of this)
+head(lin_reg_data)
+all_calls <- lin_reg_data
+all_calls_no_date <- all_calls     #making a new df for the data without the date
+all_calls_no_date$Date <- NULL     #taking out the date column because it's not numeric
+all_calls_no_date
+all_calls_no_date$day_alt <- NULL     #taking out altimeter
+all_calls_no_date
+colnames(all_calls_no_date) <- c("Temperature", "Pressure", "Humidity", "Wind Speed", "Suicide Calls", "Attempt Calls", "ITA Calls", "Suicide and Attempt Calls", "All Calls")
+all_calls_no_date
+all_calls_no_date.cor = cor(all_calls_no_date, method = c("spearman")) #doing the correlation matrix
+all_calls_no_date.rcorr = rcorr(as.matrix(all_calls_no_date)) #makes it in a class type of rcorr
+all_calls_no_date.rcorr
+all_calls_no_date.coeff = all_calls_no_date.rcorr$r #exctracting to a usable data structure
+all_calls_no_date.p = all_calls_no_date.rcorr$P
+
+all_calls_no_date.coeff  #Looking at them
+all_calls_no_date.p     #Looking at them
+
+corrplot(all_calls_no_date.coeff, method = "square", type="upper", title="Correlation Matrix of Weather and 911 Call Variables", mar=c(0,0,1,0))
+
+
+
+
+
+
+###---1. This is multiple poisson regression on the "all calls" variable. I'm trying to find the best weather variables
+head(all_calls)
+
+
+
+
+#Scatterplots of each temp variable on all calls
+plot(x = all_calls$day_temp, y = all_calls$all_calls, main = 'Scatterplot calls on avg. daily temperature', xlab = 'Avg. daily temperature', ylab  = '# daily calls')
+plot(x = all_calls$day_alt, y = all_calls$all_calls, main = 'Scatterplot calls on avg. daily Altimeter', xlab = 'Avg. daily Altimeter (pascals)', ylab  = '# daily calls')
+plot(x = all_calls$day_pres, y = all_calls$all_calls, main = 'Scatterplot calls on avg. daily Pressure', xlab = 'Avg. daily Pressure (pascals)', ylab  = '# daily calls')
+plot(x = all_calls$day_hum, y = all_calls$all_calls, main = 'Scatterplot calls on avg. daily Humidity', xlab = 'Avg. daily Humidity (%)', ylab  = '# daily calls')
+plot(x = all_calls$day_win, y = all_calls$all_calls, main = 'Scatterplot calls on avg. daily Windspeed', xlab = 'Avg. daily Windspeed (m/s)', ylab  = '# daily calls')
+
+###okay, we're finally getting to the models here.
+#models
+
+#this is all of the weather variables (temp, pressure, altimeter, humidity, and wind speed) on all calls
+m1 <- glm(all_calls ~ day_temp + day_pres + day_alt + day_hum + day_win, all_calls, family = poisson(link = "log"))
+summary(m1)
+
+#this is all of the weather variables except altimeter (temp, pressure, humidity, and wind speed) on all calls
+m2 <- glm(all_calls ~ day_temp + day_pres + day_hum + day_win, all_calls, family = poisson(link = "log"))
+summary(m2)
+
+#this istemp, pressure, and humidity on all calls
+m3 <- glm(all_calls ~ day_temp + day_pres + day_hum, all_calls, family = poisson(link = "log"))
+summary(m3)
+```
+
+
+## Poisson Regression weather variables on suicide calls
+```{r}
+###---2. This is multiple poisson regression on just the "suicide" calls — finding the best weather variables
+head(all_calls)
+
+#Scatterplots of each temp variable on suicide calls
+plot(x = all_calls$day_temp, y = all_calls$suicide_calls, main = 'Scatterplot suicide calls on avg. daily temperature', xlab = 'Avg. daily temperature', ylab  = '# daily suicide calls')
+plot(x = all_calls$day_pres, y = all_calls$suicide_calls, main = 'Scatterplot suicide calls on avg. daily Pressure', xlab = 'Avg. daily Pressure (pascals)', ylab  = '# daily suicide calls')
+plot(x = all_calls$day_hum, y = all_calls$suicide_calls, main = 'Scatterplot suicide calls on avg. daily Humidity', xlab = 'Avg. daily Humidity (%)', ylab  = '# daily suicide calls')
+plot(x = all_calls$day_win, y = all_calls$suicide_calls, main = 'Scatterplot suicide calls on avg. daily Windspeed', xlab = 'Avg. daily Windspeed (m/s)', ylab  = '# dailysuicide calls')
+                    
+#model - four weather variables on suicide calls. 
+m4 <- glm(suicide_calls ~ day_temp + day_pres + day_hum + day_win, all_calls, family = poisson(link = "log"))
+summary(m4)
+
+#nothing here is significant.
+```
+
+## Poisson Regression weather variables on suicide + attempt calls
+```{r}
+###---3. Here, I'm doing multiple regression on suicide + attempt calls — finding the best weather variables
+head(all_calls)
+
+#Scatterplots of each temp variable on suicide + attempt calls
+plot(x = all_calls$day_temp, y = all_calls$suicide_attempt_calls, main = 'Scatterplot suicide + attempt calls on avg. daily temperature', xlab = 'Avg. daily temperature', ylab  = '# daily calls')
+plot(x = all_calls$day_pres, y = all_calls$suicide_attempt_calls, main = 'Scatterplot suicide + attempt calls on avg. daily Pressure', xlab = 'Avg. daily Pressure (pascals)', ylab  = '# daily calls')
+plot(x = all_calls$day_hum, y = all_calls$suicide_attempt_calls, main = 'Scatterplot suicide + attempt calls on avg. daily Humidity', xlab = 'Avg. daily Humidity (%)', ylab  = '# daily calls')
+plot(x = all_calls$day_win, y = all_calls$suicide_attempt_calls, main = 'Scatterplot suicide + attempt calls on avg. daily Windspeed', xlab = 'Avg. daily Windspeed (m/s)', ylab  = '# daily calls')
+
+#models
+m5 <- glm(suicide_attempt_calls ~ day_temp + day_pres + day_hum + day_win, all_calls, family = poisson(link = "log"))
+summary(m5)
+
+m6 <- glm(suicide_attempt_calls ~ day_temp, all_calls, family = poisson(link = "log")) #temp
+summary(m6)
+
+m7 <- glm(suicide_attempt_calls ~ day_pres, all_calls, family = poisson(link = "log")) #pressure
+summary(m7)
+
+m8 <- glm(suicide_attempt_calls ~ day_hum, all_calls, family = poisson(link = "log")) #humidity
+summary(m8)
+
+m9 <- glm(suicide_attempt_calls ~ day_win, all_calls, family = poisson(link = "log")) #Wind speed
+summary(m9)
+```
+
+## Poisson Regression weather variables on ITA calls
+```{r}
+###---4. Here, I'm doing multiple poisson regressions on ITA calls — finding the best weather variables
+head(all_calls)
+
+m10 <- glm(ITA_calls ~ day_temp + day_pres + day_hum + day_win, all_calls, family = poisson(link = "log"))
+summary(m10)
+
+m11 <- glm(ITA_calls ~ day_temp, all_calls, family = poisson(link = "log"))
+summary(m11)
+```
+
+
+```{r}
+
+#library(stringr)
+###---5. Here, I'm doing multiple regression on calls using two categories for temperature: above and below median temperature
+#first, I'm making the data frame
+head(lin_reg_data)
+summary(lin_reg_data) #med temp: 8.62; med pressure: 100786; med humidity: 82:42 #finding the median temperature, pressure, and humidity
+suic_and_attempt_calls_meds<- all_calls
+suic_and_attempt_calls_meds <- suic_and_attempt_calls_meds %>% mutate(temp_above = ifelse(day_temp > 8.62, 1, 0)) #Here, creating a bariuable that codes days with temperatures above the median as "1" and below the median as "0". 
+head(suic_and_attempt_calls_meds)  
+  
+##Here are the poisson regressions, using the above or below the median variable on "All calls"
+m12 <- glm(all_calls ~ temp_above, family = poisson(link='log'), data=suic_and_attempt_calls_meds)
+summary(m12)
+
+##Here are the poisson regressions, using the above or below the median variable on "ITA calls"
+m13 <- glm(ITA_calls ~ temp_above, suic_and_attempt_calls_meds, family = poisson(link = "log"))
+summary(m13)
+
+##Here are the poisson regressions, using the above or below the median variable on "suicide calls"
+m14 <- glm(suicide_calls ~ temp_above, suic_and_attempt_calls_meds, family = poisson(link = "log"))
+summary(m14)
+
+##Here are the poisson regressions, using the above or below the median variable on "suicide attempt calls"
+m15 <- glm(suicide_attempt_calls ~ temp_above, suic_and_attempt_calls_meds, family = poisson(link = "log"))
+summary(m15)
+
+###---5.2. Here, I'm doing the same thing with pressure. Looking to see if above median pressure days related to calls (or below median pressure days)
+#here, I'm creating the data frames
+head(lin_reg_data)
+suic_and_attempt_calls_med_press <- all_calls %>% mutate(press_above = ifelse(day_pres > 100786, 1, 0))
+head(suic_and_attempt_calls_med_press)
+
+#here is high/low pressure days on all calls
+m17 <- glm(all_calls ~ press_above, family = poisson(link='log'), data=suic_and_attempt_calls_med_press)
+summary(m17)
+
+#here is high/low pressure days on suicide calls
+m18 <- glm(suicide_calls ~ press_above, suic_and_attempt_calls_med_press, family = poisson(link = "log"))
+summary(m18)
+
+#here is high/low pressure days on Attempts
+m19 <- glm(suicide_attempt_calls ~ press_above, suic_and_attempt_calls_med_press, family = poisson(link = "log"))
+summary(m19)
+
+#here is high/low pressure days on ITA calls
+m20 <- glm(ITA_calls ~ press_above, suic_and_attempt_calls_med_press, family = poisson(link = "log"))
+summary(m20)
+
+###---5.3. Now, the same thing with high/low humidity: multiple regression on calls — above and below median humidity
+head(lin_reg_data)
+suic_and_attempt_calls_med_press <- all_calls %>% mutate(hum_above = ifelse(day_hum > 82.42, 1, 0))
+head(suic_and_attempt_calls_med_press)
+
+m21 <- glm(all_calls ~ hum_above, family = poisson(link='log'), data=suic_and_attempt_calls_med_press)
+summary(m21)
+
+m22 <- glm(suicide_calls ~ hum_above, suic_and_attempt_calls_med_press, family = poisson(link = "log"))
+summary(m22)
+
+m23 <- glm(suicide_attempt_calls ~ hum_above, suic_and_attempt_calls_med_press, family = poisson(link = "log"))
+summary(m23)
+
+m24 <- glm(ITA_calls ~ hum_above, suic_and_attempt_calls_med_press, family = poisson(link = "log"))
+summary(m24)
+
+
+```
+
+```{r}
+###---7 - Regression tree analysis. 
+#install.packages("tree")
+library(tree)
+library(rpart)
+
+head(all_calls)
+tree_data <- all_calls
+
+tm1 <- tree(formula = all_calls ~ day_temp + day_pres + day_hum + day_win, data = all_calls)
+plot(tm1)
+text(tm1)
+
+
+tm2 <- tree(formula = ITA_calls ~ day_temp + day_pres + day_hum + day_win, data = all_calls)
+plot(tm2)
+text(tm2)
+#party package for better regression trees. You can't use NAs. ctree. It's better because it has better diagrams. 
+
+
+
+```
+```{r}
+###---8 Pick the best models, then do test of assumptions
+# We do this after because some tests need the model results to test them (I think)
+# Use Keyne's code for this. 
+
+#----1. Pick the best models-----#
+m3.5 <- glm(all_calls ~ day_temp + day_hum, all_calls, family = poisson(link = "log"))
+summary(m3.5)
+
+m10.5 <- glm(ITA_calls ~ day_temp + day_pres + day_hum, all_calls, family = poisson(link = "log"))
+summary(m10.5)
+
+#----1. Assumption Checks. -----#
+#1. Linearity: Relationship between numeric Xs and the log(count) is linear. Check it with residual plots. 
+#2. Independence: Ys (or errrors) are independent. Should be: call counts from one person shouldn't affect them for another.
+#3. Ys (or errors) are poisson distributed. 
+#4. For a given set of Xs, mean = variance (SD = sqrt)
+#resource: https://stats.stackexchange.com/questions/70558/diagnostic-plots-for-count-regression
+
+#install.packages("pastecs")
+library(pastecs)
+#install.packages("vcd")
+library(vcd)
+#install.packages("AER")
+library(AER)
+library(MASS)
+# 1. Test and graph the original count data by plotting observed frequencies and fitted frequencies (see chapter 2 in Friendly — http://rads.stackoverflow.com/amzn/click/1580256600)
+
+fit1 <- goodfit(all_calls$all_calls)
+summary(fit1)
+rootogram(fit1)
+
+fit2 <- goodfit(all_calls$ITA_calls)
+summary(fit2)
+rootogram(fit2)
+
+#Ord plots  help in identifying which count data model is underlying
+
+Ord_plot(all_calls$all_calls)
+Ord_plot(all_calls$ITA_calls)
+
+#or with the "XXXXXXness" plots where XXXXX is the distribution of choice, say Poissoness plot (which speaks against Poisson, try also type="nbinom"):
+
+distplot(all_calls$all_calls, type="poisson")
+distplot(all_calls$ITA_calls, type="poisson")
+distplot(all_calls$all_calls, type="nbinom")
+distplot(all_calls$ITA_calls, type="nbinom")
+
+#This data set actually looks like it might be better with a negative binomial distribution!
+
+#2. Inspect usual goodness-of-fit measures (such as likelihood ratio statistics vs. a null model or similar):
+
+summary(m3.5)
+anova(m3.5, test="Chisq")  #It's significant, providing evidence that the model fits okay
+
+summary(m10.5)
+anova(m10.5, test="Chisq")  #It's significant, providing evidence that the model fits okay
+
+#3. Check for over / underdispersion by looking at residual deviance/df or at a formal test statistic
+
+deviance(m3.5)/m3.5$df.residual   # 1.444
+dispersiontest(m3.5)              # Significant, which suggests over dispersion
+
+deviance(m10.5)/m10.5$df.residual   # 1.57
+dispersiontest(m10.5)              # Significant, which suggests over dispersion
+
+
+#4. Check for influential and leverage points, e.g., with the influencePlot in the car package.
+
+library(car)
+influencePlot(m3.5)
+influencePlot(m10.5)   #many points of influence which may suggest it's not a perfect model
+
+
+#5. Check for zero inflation by fitting a count data model and its zeroinflated / hurdle counterpart and compare them (usually with AIC). 
+#install.packages("pscl")
+library(pscl)
+m25 <- zeroinfl(all_calls~day_temp+day_hum, data=all_calls, dist="poisson")
+summary(m25)
+AIC(m3.5, m25)
+
+m26 <- zeroinfl(ITA_calls~day_temp+day_hum+day_pres, data=all_calls, dist="poisson")
+summary(m26)
+AIC(m10.5, m26)
+
+#6. Plot the residuals (raw, deviance or scaled) on the y-axis vs. the (log) predicted values (or the linear predictor) on the x-axis. Here we see some very large residuals and a substantial deviance of the deviance residuals from the normal (speaking against the Poisson; Edit: @FlorianHartig's answer suggests that normality of these residuals is not to be expected so this is not a conclusive clue):
+
+res <- residuals(m3.5, type="deviance")
+plot(log(predict(m3.5)), res)
+  abline(h=0, lty=2)
+  qqnorm(res)
+  qqline(res)
+
+res <- residuals(m10.5, type="deviance")
+plot(log(predict(m10.5)), res)
+  abline(h=0, lty=2)
+  qqnorm(res)
+  qqline(res)
+
+#but those we wouldn't expect to be normal. Here are other ones that are better:
+
+performance::check_model(m3.5)
+performance::check_model(m10.5)
+
+```
+```{r}
+###---9 The above models weren't great. Let's try again with an nbinomial distribution
+ 
+#----1. Pick the best models-----#
+m27 <- glm.nb(all_calls ~ day_temp + day_hum, data = all_calls)
+summary(m27)
+
+m28 <- glm.nb(ITA_calls ~ day_temp + day_pres + day_hum, data = all_calls)
+summary(m28)
+#pressure isn't significant, so I'll take it out:
+
+m29 <- glm.nb(ITA_calls ~ day_temp + day_hum, data = all_calls)
+summary(m29)
+
+#Final models used here: 27 and 29.
+
+#now see if they're significant
+m27.5 <- glm.nb(all_calls ~ 1, data = all_calls)
+summary(m27.5)
+anova(m27.5, m27) #gives chi square test between them. It's significant. 
+
+m29.5 <- glm.nb(ITA_calls ~ 1, data = all_calls)
+summary(m29.5)
+anova(m29.5, m29) #gives chi square test between them. It's significant. 
+
+##---test assumptions--#
+# 1. Test and graph the original count data by plotting observed frequencies and fitted frequencies (see chapter 2 in Friendly — http://rads.stackoverflow.com/amzn/click/1580256600)
+#first parts same as above
+
+#or with the "XXXXXXness" plots where XXXXX is the distribution of choice, say Poissoness plot (which speaks against Poisson, try also type="nbinom"):
+
+distplot(all_calls$all_calls, type="nbinom")
+distplot(all_calls$ITA_calls, type="nbinom")
+
+#This data set actually looks like it might be better with a negative binomial distribution!
+
+#2. Inspect usual goodness-of-fit measures (such as likelihood ratio statistics vs. a null model or similar):
+
+summary(m27)
+anova(m27, test="Chisq")  #It's significant
+
+summary(m29)
+anova(m29, test="Chisq")  #It's significant,
+
+#3. Check for over / underdispersion by looking at residual deviance/df or at a formal test statistic
+
+deviance(m27)/m27$df.residual   # 1.07 —a bit overdispersed, but better than before
+deviance(m29)/m29$df.residual   # 1.15 —a bit overdispersed, but better than before
+
+
+
+#4. Check for influential and leverage points, e.g., with the influencePlot in the car package.
+
+library(car)
+influencePlot(m27)
+influencePlot(m29)   #many points of influence which suggests it's not a perfect model
+
+
+#5. Check for zero inflation by fitting a count data model and its zeroinflated / hurdle counterpart and compare them (usually with AIC). 
+#install.packages("pscl")
+library(pscl)
+m30 <- zeroinfl(all_calls~day_temp+day_hum, data=all_calls, dist="negbin")
+summary(m30)
+AIC(m27, m30)
+
+m31 <- zeroinfl(ITA_calls~day_temp+day_hum, data=all_calls, dist="negbin")
+summary(m31)
+AIC(m29, m31)
+
+#6. Plot the residuals (raw, deviance or scaled) on the y-axis vs. the (log) predicted values (or the linear predictor) on the x-axis. Here we see some very large residuals and a substantial deviance of the deviance residuals from the normal (speaking against the Poisson; Edit: @FlorianHartig's answer suggests that normality of these residuals is not to be expected so this is not a conclusive clue):
+
+res <- residuals(m27, type="deviance")
+plot(log(predict(m27)), res)
+  abline(h=0, lty=2)
+  qqnorm(res)
+  qqline(res)
+
+  
+
+res <- residuals(m29, type="deviance")
+plot(log(predict(m29)), res)
+  abline(h=0, lty=2)
+  qqnorm(res)
+  qqline(res)
+  
+help(residuals)
+
+
+
+#but those we wouldn't expect to be normal. Here are other ones that are better:
+
+performance::check_model(m27)
+performance::check_model(m29)
+
+```
+```{r}
+#-----10. Choose overall models----#
+#install.packages("ggeffects")
+library(ggeffects)
+library(ggplot2)
+
+AIC(m3.5, m27) #27 has lower AIC, so there's some eividence it's better. i.e. negative binomial model better than Poisson
+AIC(m10.5, m29) #29 has lower AIC, so there's some eividence it's better. i.e. negative binomial model better than Poisson
+
+summary(m27)
+exp(-0.011224)
+exp(-0.005628)
+
+
+summary(m29)
+exp(-0.023334)
+exp(-0.006416)
+
+#Plot term plots Model 27
+
+termdf27_temp <-ggpredict(m27, terms = "day_temp")
+termdf27_temp
+ggplot(termdf27_temp, aes(x, predicted)) +
+  ggtitle ("Term plot of air temperature on all calls") +
+  xlab("Air temperature (°C)") +
+  ylab("Predicted number of all calls") +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .1)
+
+termdf27_hum <-ggpredict(m27, terms = "day_hum")
+termdf27_hum
+ggplot(termdf27_hum, aes(x, predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .1) +
+  ggtitle ("Term plot of relative humidity on all calls") +
+  xlab("Relative humidity (%)") +
+  ylab("Predicted number of all calls")
+
+
+
+#Plot term plots Model 29
+
+termdf29_temp <-ggpredict(m29, terms = "day_temp")
+termdf29_temp
+ggplot(termdf29_temp, aes(x, predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .1) +
+  ggtitle ("Term plot of air temperature on ITA calls") +
+  xlab("Air temperature (°C)") +
+  ylab("Predicted number of all calls")
+
+termdf29_hum <-ggpredict(m29, terms = "day_hum")
+termdf29_hum
+ggplot(termdf29_hum, aes(x, predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .1) +
+  ggtitle ("Term plot of relative humidity on ITA calls") +
+  xlab("Relative humidity (%)") +
+  ylab("Predicted number of all calls")
+
+
+#Now, test assumptions
+#1. Linearity: Relationship between numeric Xs and the log(count) is linear. Check it with residual plots. 
+#2. Independence: Ys (or errrors) are independent. Should be: call counts from one person shouldn't affect them for another. (https://www.godatadrive.com/blog/basic-guide-to-test-assumptions-of-linear-regression-in-r)
+
+durbinWatsonTest(m27)
+
+#3. Ys (or errors) are poisson distributed. 
+#4. For a given set of Xs, mean = variance (SD = sqrt)
+
+
+
+
+```
+# Resources
+
+I used the following resources to help me:
+https://www.programmableweb.com/news/how-to-access-any-restful-api-using-r-language/how-to/2017/07/21?page=2
+https://github.com/fickse/mesowest
+https://www.weather.gov/media/wrh/mesowest/MesoWest_Data_Variables_Definitions.pdf
+https://www.infoworld.com/article/3434627/get-api-data-with-r.html
+https://www.dataquest.io/blog/r-api-tutorial/
+
+https://www.scribbr.com/statistics/linear-regression-in-r/
